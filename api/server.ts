@@ -407,9 +407,13 @@ app.post('/api/upload-avatar', async (req, res) => {
 
 initAIServices();
 
-app.listen(port, () => {
-  console.log(`AI 文字游戏服务器运行在端口 ${port}`);
-});
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`AI 文字游戏服务器运行在端口 ${port}`);
+  });
+}
+
+export default app;
 const CHARACTER_MAP: Record<string, { name: string; profile: string }> = {
   chennuo: {
     name: '陈诺',
