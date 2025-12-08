@@ -1,0 +1,109 @@
+<div class="inline-drawer">
+  <div class="inline-drawer-toggle inline-drawer-header">
+    <b>角色引擎</b>
+    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+  </div>
+  <div class="inline-drawer-content">
+    <div class="ce-settings-root">
+      <div class="ce-section">
+        <div class="section-divider">基本设置</div>
+        <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <input type="checkbox" id="ce_enabled" />
+          <label for="ce_enabled" title="推荐开启；关闭时角色引擎不会改写提示或维护数值状态">启用角色引擎</label>
+        </div>
+        <div class="flex-container alignItemsCenter ce-settings-button-row" style="gap:8px;margin-top:4px;">
+          <button id="ce_open_editor" class="menu_button" type="button"
+            title="打开当前角色的参数与提示词编辑器（数据直接写入角色卡扩展字段）">
+            当前角色参数 / 提示编辑器
+          </button>
+          <button id="ce_open_state_observer" class="menu_button" type="button"
+            title="查看当前楼层 EngineState 与提示命中情况，仅用于观察与模拟，不修改存档">
+            参数 / 状态观察器
+          </button>
+        </div>
+      </div>
+      <hr class="sysHR" />
+      <div class="ce-section">
+        <div class="section-divider">对话逻辑</div>
+        <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <input type="checkbox" id="ce_use_early_parse" />
+          <label for="ce_use_early_parse" title="提前解析模式已强制启用，这是核心功能，无法关闭。在生成本轮回复前，基于上一轮回复和当前输入提前解析 CE_UpdateState / CE_UpdateScene。">启用提前解析 <span style="color:#888;font-size:0.85em;">(强制开启)</span></label>
+        </div>
+        
+        <!-- API调用延迟 -->
+        <div class="flex-container alignItemsCenter" style="gap:8px;margin-top:12px;flex-wrap:wrap;">
+          <label for="ce_parse_call_delay" style="min-width:120px;">API 调用延迟：</label>
+          <input type="number" id="ce_parse_call_delay" class="text_pole"
+            min="0" max="60" step="1" value="5"
+            style="width:80px;"
+            title="解析模型输出完成后，延迟多少秒才调用主对话模型。适用于有RPM限制的API渠道。" />
+          <span style="color:#888;font-size:0.85em;">秒 (0-60)</span>
+        </div>
+        <small style="display:block;margin-top:4px;color:#888;font-size:0.8em;margin-left:8px;">
+          设置解析模型输出完成后延迟多少秒才调用主对话模型，适用于有RPM限制的API渠道
+        </small>
+        
+        <!-- 预设提示词配置 -->
+        <div class="flex-container alignItemsCenter" style="gap:8px;margin-top:12px;flex-wrap:wrap;">
+          <input type="checkbox" id="ce_parse_use_preset_prompts" />
+          <label for="ce_parse_use_preset_prompts" title="启用后解析模型将使用酒馆预设中的提示词作为基座（ALL_PREON），但不注入对话历史、角色描述和人设描述">为解析模型启用预设提示词</label>
+        </div>
+        <div class="flex-container alignItemsCenter" style="gap:8px;margin-top:8px;margin-left:24px;flex-wrap:wrap;">
+          <input type="checkbox" id="ce_parse_inject_world_info" />
+          <label for="ce_parse_inject_world_info" title="仅在启用预设提示词时可用，控制是否向解析模型注入世界书内容">注入世界书内容</label>
+        </div>
+        <small style="display:block;margin-top:4px;color:#888;font-size:0.8em;margin-left:8px;">
+          使用你当前在酒馆里启用的预设里的所有提示词，但不注入对话历史、角色描述和人设描述
+        </small>
+        
+        <div class="flex-container alignItemsCenter ce-settings-button-row" style="gap:8px;margin-top:12px;">
+          <button id="ce_open_parse_api_settings" class="menu_button" type="button"
+            title="配置解析模型的API连接参数和采样参数（可选择使用当前API设置或自定义覆写）">
+            解析模型 API 设置
+          </button>
+        </div>
+      </div>
+      <hr class="sysHR" />
+      <div class="ce-section">
+        <div class="section-divider">世界观 / 历史检索</div>
+        <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;">
+          <input type="checkbox" id="ce_use_world_rag" />
+          <label for="ce_use_world_rag" title="实验功能，默认关闭；启用后可按 WorldContextIntent 从设定与日志中检索相关片段">启用世界观 RAG</label>
+        </div>
+        <div class="flex-container alignItemsCenter" style="gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <input type="checkbox" id="ce_use_independent_rag" />
+          <label for="ce_use_independent_rag" title="启用独立恒定 RAG 检索，无需解析模型调用，直接基于用户输入和AI回复进行检索">启用独立恒定 RAG</label>
+        </div>
+        <div class="flex-container alignItemsCenter ce-settings-button-row" style="gap:8px;margin-top:4px;">
+          <button id="ce_open_lore_manager" class="menu_button" type="button"
+            title="打开世界观设定管理器，管理RAG集合、文档和向量化">
+            世界观设定管理器
+          </button>
+          <button id="ce_open_collection_manager" class="menu_button" type="button"
+            title="打开独立集合管理器，快速管理所有RAG集合">
+            集合管理器
+          </button>
+          <button id="ce_open_retrieval_tester" class="menu_button" type="button"
+            title="打开RAG检索测试器，测试向量检索功能">
+            RAG 检索测试器
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<style>
+  .ce-settings-root .section-divider {
+    font-size: 0.8em;
+    color: #8f8f8f;
+    margin: 0.5em 0 0.3em;
+    letter-spacing: 0.05em;
+  }
+  .ce-settings-root label {
+    margin-top: 0.2em;
+  }
+  .ce-settings-root input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+</style>
