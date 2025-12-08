@@ -30,6 +30,7 @@ export default function Game() {
     endingUnlocked: false,
     actionRequired: 8,
   });
+  console.log('gameState', gameState);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<string>('');
