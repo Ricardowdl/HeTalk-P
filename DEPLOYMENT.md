@@ -1,61 +1,96 @@
-# AI 文字游戏部署指南
+# 部署指南 (Deployment Guide)
 
-## 快速开始
+本指南介绍如何将该项目部署到你自己的云服务器（如阿里云、腾讯云、AWS 等）。
 
-### 本地开发
+## 1. 准备工作
+
+确保你的服务器已安装：
+*   **Node.js** (推荐 v18 或更高版本)
+*   **Git**
+
+## 2. 获取代码
+
+在服务器上克隆你的仓库：
+
 ```bash
+git clone https://github.com/YourUsername/YourRepo.git
+cd YourRepo
+```
+
+## 3. 安装依赖与构建
+
+```bash
+# 安装依赖
 npm install
-npm run dev
-```
 
-### 环境变量配置
-创建 `.env` 文件：
-```
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_claude_key
-GOOGLE_API_KEY=your_gemini_key
-DEEPSEEK_API_KEY=your_deepseek_key
-ZHIPU_API_KEY=your_zhipu_key
-```
-
-## Vercel 部署
-
-1. 连接 GitHub 仓库到 Vercel
-2. 在 Vercel 控制台添加环境变量：
-   - `OPENAI_API_KEY`
-   - `ANTHROPIC_API_KEY`
-   - `GOOGLE_API_KEY`
-   - `DEEPSEEK_API_KEY`
-   - `ZHIPU_API_KEY`
-3. 自动部署
-
-## 自建服务器部署
-
-### 1. 构建项目
-```bash
+# 构建前端
 npm run build
 ```
 
-### 2. 安装依赖
+构建完成后，会生成 `dist` 目录，里面包含了编译后的前端静态文件。
+
+## 4. 配置环境变量
+
+复制 `.env` 文件并填入你的 API Key：
+
 ```bash
-npm install --production
+# Linux/Mac
+cp .env.example .env
+
+# Windows
+copy .env.example .env
 ```
 
-### 3. 启动服务
-```bash
-# 开发模式
-npm run server:dev
+或者直接创建 `.env` 文件：
 
-# 生产模式
-npm run server:prod
+```env
+PORT=3001
+OPENAI_API_KEY=sk-xxxxxx
+ANTHROPIC_API_KEY=sk-ant-xxxxxx
+NODE_ENV=production
+PM2_USAGE=true
 ```
 
-### 4. Nginx 配置示例
+## 5. 启动服务
+
+### 方式一：直接启动 (测试用)
+
+```bash
+npm start
+```
+(注意：你需要先在 package.json 中添加 `"start": "tsx api/server.ts"` 脚本，或者直接运行 `npx tsx api/server.ts`)
+
+### 方式二：使用 PM2 (生产环境推荐)
+
+PM2 是一个强大的 Node.js 进程管理工具，支持后台运行、自动重启、日志管理。
+
+1.  全局安装 PM2：
+    ```bash
+    npm install -g pm2
+    ```
+
+2.  启动应用：
+    ```bash
+    pm2 start ecosystem.config.js
+    ```
+
+3.  查看状态：
+    ```bash
+    pm2 status
+    pm2 logs
+    ```
+
+## 6. 配置 Nginx (可选，推荐)
+
+如果你想通过域名访问（如 `http://game.example.com`），建议使用 Nginx 反向代理。
+
+Nginx 配置文件示例：
+
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
-    
+    server_name game.example.com;
+
     location / {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
@@ -64,42 +99,10 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
-    
-    location /api {
-        proxy_pass http://localhost:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
 }
 ```
 
-### 5. PM2 进程管理
-```bash
-# 安装 PM2
-npm install -g pm2
+## 常见问题
 
-# 启动应用
-pm2 start api/server.ts --name "ai-story-game"
-
-# 保存配置
-pm2 save
-pm2 startup
-```
-
-## 功能特性
-
-- ✅ 无需注册即可游玩
-- ✅ 双角色剧情线
-- ✅ AI 故事生成
-- ✅ 本地存储存档
-- ✅ 自定义 AI 配置
-- ✅ 响应式设计
-- ✅ 新粗野主义 UI
-
-## 技术栈
-
-- 前端：React + TypeScript + Tailwind CSS
-- 后端：Express + TypeScript
-- 状态管理：Zustand
-- AI 集成：OpenAI API + Claude API + Gemini API + DeepSeek API + Zhipu GLM API
-- 部署：Vercel / 自建服务器
+*   **构建失败？** 检查服务器内存是否足够（Vite 构建较吃内存）。
+*   **API 404？** 确保后端服务已启动，并且 Nginx 配置正确转发了请求。

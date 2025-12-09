@@ -2,12 +2,18 @@ import express from 'express';
 import cors from 'cors';
 import { OpenAI } from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import path from 'path';
 
 const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from the React app
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(process.cwd(), 'dist')));
+}
 
 // AI 服务配置
 const aiServices = {
@@ -407,7 +413,18 @@ app.post('/api/upload-avatar', async (req, res) => {
 
 initAIServices();
 
-if (process.env.NODE_ENV !== 'production') {
+// Handle React routing, return all requests to React app
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    // 忽略 /api 开头的请求，让它们进入 API 路由（如果没有匹配到前面的路由）
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+  });
+}
+
+if (process.env.NODE_ENV !== 'production' || process.env.PM2_USAGE === 'true') {
   app.listen(port, () => {
     console.log(`AI 文字游戏服务器运行在端口 ${port}`);
   });
