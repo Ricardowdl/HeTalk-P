@@ -82,6 +82,18 @@ export function formatDialogue(input: string): string {
 export function formatStory(input: string, maxChars = 600): string {
   let text = sanitizeAIText(input);
   text = text.replace(/\s+$/g, '').trim();
+  // 移除内嵌的选项段落与枚举项
+  const lines = text.split(/\r?\n/);
+  const filtered = lines.filter((ln) => {
+    const s = String(ln || '').trim();
+    if (!s) return false;
+    if (/^(你的选择|选择|选项)\s*[:：]/.test(s)) return false;
+    if (/^\d+\s*[\.、:：]/.test(s)) return false;
+    if (/^[\-•]\s+/.test(s)) return false;
+    if (/<\s*thinking/i.test(s)) return false;
+    return true;
+  });
+  text = filtered.join('\n').trim();
   if (text.length <= maxChars) return text;
   // 尽量按句子边界截断
   const clipped = text.slice(0, maxChars);

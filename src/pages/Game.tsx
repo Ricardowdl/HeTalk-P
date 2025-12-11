@@ -1,6 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '@/utils/request';
 import { sanitizeAIText, formatDialogue, formatStory } from '@/utils/sanitize';
+import { applyCommands } from '@/utils/worldState';
+
+function sanitizeActions(raw: any, chapter: number): string[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const cleaned = arr
+    .map((s) => String(s || '').trim())
+    .filter((s) => !/[<>]/.test(s))
+    .filter((s) => !/(<\s*thinking|思维链|CoT|xml|json|分析|检查|输出|结构|模板)/i.test(s))
+    .filter((s) => !/[：:]/.test(s))
+    .map((s) => s.replace(/["'“”‘’]/g, ''))
+    .map((s) => s.replace(/[。！？!?.…]+$/g, ''))
+    .filter((s) => s.length >= 8 && s.length <= 20)
+    .filter((s, i, self) => s && self.indexOf(s) === i);
+  if (cleaned.length) return cleaned.slice(0, 5);
+  // fallback by stage
+  if (chapter <= 3) return ['伸手调试收音机', '开口问林哲', '下车走走', '查看手机时间', '默默观察街道'];
+  if (chapter <= 6) return ['记录频率变化', '沿着旧路前行', '回忆大学咖啡馆', '跟随异常声音', '调整频道98.7'];
+  return ['屏住呼吸继续看', '压低声音询问', '闭眼冷静片刻', '仔细观察表情', '思考错过的节点'];
+}
 import { useNavigate } from 'react-router-dom';
 import { Settings, Save } from 'lucide-react';
 
@@ -28,9 +47,8 @@ export default function Game() {
     buttons: [],
     chapter: 0,
     endingUnlocked: false,
-    actionRequired: 8,
+    actionRequired: 10,
   });
-  console.log('gameState', gameState);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [selectedCharacter, setSelectedCharacter] = useState<string>('');
@@ -84,19 +102,19 @@ export default function Game() {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed && typeof parsed === 'object' && parsed.actionRequired == null) {
-        parsed.actionRequired = 6 + Math.floor(Math.random() * 7);
+        parsed.actionRequired = 10;
       }
       setGameState(parsed);
     } else {
       // 初始剧情（背景介绍 + 开场）
       const isChenNuo = (charId || selectedCharacter || 'chennuo') === 'chennuo';
       const initialStory = [
-        '城市的黄昏总是来得很快，电台的灯牌在雨幕中闪烁，像在呼吸。',
-        '这座城有两个人：一个是电台主持人陈诺，温柔而神秘；一个是程序员林哲，理性却孤独。',
+        '城市的黄昏总是来得很快，霓虹在雨幕中闪烁，像在呼吸。',
+        '这座城有两个人：一个是广告创意总监陈诺，敏感细腻；一个是室内设计师林哲，洒脱之下藏着隐忍。',
         isChenNuo
-          ? '你是陈诺。每晚的播音像是一条细细的光，在潮湿的街道上延长，故事与人声从频率中被温柔地拾起。'
-          : '你是林哲。在代码与加班的缝隙里，你常把耳机递给夜色，让电台的声音挤进那些看不见的空白。',
-        '雨夜，你独自走在回家的路上，电台的前奏在耳边若隐若现。',
+          ? '你是陈诺。30岁的你在广告公司的紧凑节奏里练就克制的表达，念旧却不沉溺。'
+          : '你是林哲。30岁的你在图纸与工地之间游走，笑意里藏着不被看见的张力。',
+        '雨刚停，你坐在旧丰田的驾驶座，车内的收音机发出细微的沙沙声。',
       ];
       const newState = {
         story: initialStory,
@@ -104,7 +122,7 @@ export default function Game() {
         buttons: ['继续探索', '回头查看', '保持警惕'],
         chapter: 1,
         endingUnlocked: false,
-        actionRequired: 6 + Math.floor(Math.random() * 7),
+        actionRequired: 10,
       };
       setGameState(newState);
       localStorage.setItem(key, JSON.stringify(newState));
@@ -161,15 +179,19 @@ export default function Game() {
         maxTokens: typeof aiConfig.maxTokens === 'number' ? aiConfig.maxTokens : 8000,
         tishici,
         globalContext,
+        targetActions: gameState.actionRequired ?? 10,
+        currentAction: gameState.chapter,
       }, { timeoutMs: 180000, retries: 2, retryDelayMs: 2000 });
-      const storyText = formatStory(String(data?.story || '').trim(), 420);
+      const storyText = formatStory(String(data?.story || '').trim(), 300);
       if (!storyText) throw new Error('生成内容为空');
       const newStory = [...gameState.story, storyText];
       const nextChapter = gameState.chapter + 1;
-      const defaultButtons = ['继续探索', '回头查看', '保持警惕'];
-      const dynamicButtons = (Array.isArray((data as any)?.actions) && (data as any).actions.length ? (data as any).actions.slice(0, 5) : defaultButtons);
+      const dynamicButtons = sanitizeActions((data as any)?.actions, nextChapter);
+      if (Array.isArray((data as any)?.tavern_commands)) {
+        applyCommands((data as any).tavern_commands);
+      }
       const actionsSoFar = nextChapter - 1; // 已进行的行动次数
-      const required = (gameState.actionRequired ?? 8);
+      const required = (gameState.actionRequired ?? 10);
       const unlocked = actionsSoFar >= required || gameState.endingUnlocked;
       const newState = {
         ...gameState,

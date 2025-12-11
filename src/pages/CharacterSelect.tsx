@@ -6,15 +6,15 @@ const characters = [
   {
     id: 'chennuo',
     name: '陈诺',
-    subtitle: '电台主持人 · 时间旅者',
-    description: '温柔而神秘，拥有穿越时空的能力，在雨夜中与你相遇。',
+    subtitle: '广告创意总监 · 敏感细腻',
+    description: '30岁，敏感细腻，对青春怀有温柔的遗憾。故事主视角，成年人的克制与温柔贯穿始终。',
     bgGradient: 'from-brutal-purple to-brutal-dark',
   },
   {
     id: 'linzhe',
     name: '林哲',
-    subtitle: '程序员 · 记忆追寻者',
-    description: '理性却孤独，在寻找失去的记忆过程中，与你产生命运的交集。',
+    subtitle: '室内设计师 · 隐忍守护',
+    description: '30岁，表面洒脱，内心隐忍。九年的秘密与守护，是城市光影下最安静的情感。',
     bgGradient: 'from-brutal-dark to-black',
   },
 ];

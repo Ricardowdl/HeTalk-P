@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { OpenAI } from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
+import fs from 'fs';
 import path from 'path';
 
 const app = express();
@@ -9,11 +10,6 @@ const port = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-
-// Serve static files from the React app
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(process.cwd(), 'dist')));
-}
 
 // AI 服务配置
 const aiServices = {
@@ -38,16 +34,19 @@ function initAIServices() {
 // 故事生成接口
 app.post('/api/generate-story', async (req, res) => {
   try {
-    const { prompt, character, history, provider, apiKey, model, temperature, maxTokens, tishici, globalContext } = req.body;
+    const { prompt, character, history, provider, apiKey, model, temperature, maxTokens, tishici, globalContext, targetActions, currentAction } = req.body;
     const char = resolveCharacter(character);
     const counterpartName = char.name === '林哲' ? '陈诺' : '林哲';
     const engineState = {
       cast: { focus: [char.name], presentSupporting: [counterpartName], offstageRelated: [] },
       scene: { locationHint: '电台与雨夜街头' },
-      worldIntent: { queries: tishici ? [tishici] : [] },
+      worldIntent: { queries: (tishici ? [tishici] : []) },
       entitiesRuntime: {},
     };
     const engineBlock = await buildEngineBlockSafe(engineState);
+    const tishiciAll = `${readGlobalTishici()}\n${String(tishici || '')}`.trim();
+    const tishiciBlock = buildTishiciConstraints(tishiciAll);
+    const cotBlock = buildCotProtocol();
     
     let response;
     
@@ -59,7 +58,7 @@ app.post('/api/generate-story', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: `${engineBlock ? engineBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。\n要求：\n1) 必须以${char.name}的第一人称视角叙述；\n2) 不得切换到其他角色的视角或身份；\n3) 仅将另一角色剧情作为世界背景参考，不得改变当前角色人称；\n4) 控制篇幅在200~400字，结尾完整，不要半句截断。\n${tishici ? `剧情提示：${tishici}\n` : ''}${globalContext ? `另一角色剧情参考（仅背景）：${globalContext}\n` : ''}`,
+            content: `${engineBlock ? engineBlock + '\n\n' : ''}${tishiciBlock ? tishiciBlock + '\n\n' : ''}${cotBlock ? cotBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。\n要求：\n1) 必须以${char.name}的第一人称视角叙述；\n2) 不得切换到其他角色的视角或身份；\n3) 仅将另一角色剧情作为世界背景参考，不得改变当前角色人称；\n4) 控制篇幅约300字，句子完整，不要半句截断；\n5) 尝试在${Number(targetActions || 10)}次行动内到达结局，当前为第${Number(currentAction || 0)}次，靠近目标需加快推进，未到目标避免过早结局。\n6) 最终输出只包含剧情文本，不输出<thinking>内容。`,
           },
           ...history,
           { role: 'user', content: prompt },
@@ -75,7 +74,7 @@ app.post('/api/generate-story', async (req, res) => {
         model: model || 'claude-3-haiku-20240307',
         max_tokens: capTokens('claude', maxTokens, 8000),
         temperature: typeof temperature === 'number' ? temperature : 0.7,
-        system: `${engineBlock ? engineBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须使用${char.name}的第一人称，不得切换到其他角色视角。\n字数控制：200~400字，句子完整。${tishici ? `\n剧情提示：${tishici}` : ''}${globalContext ? `\n另一角色剧情参考（仅背景）：${globalContext}` : ''}`,
+        system: `${engineBlock ? engineBlock + '\n\n' : ''}${tishiciBlock ? tishiciBlock + '\n\n' : ''}${cotBlock ? cotBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须使用${char.name}的第一人称，不得切换到其他角色视角。\n输出结构：先输出<thinking>分析，再输出用json包裹的JSON，严格包含{text, mid_term_memory, tavern_commands, action_options}四字段；text为1500-2500字纯叙事；action_options正好5项；禁止未定义字段。\n节奏：在${Number(targetActions || 10)}次行动内达到结局，当前为第${Number(currentAction || 0)}次，靠近目标时加快推进，未到目标避免过早结局。\n现代都市约束：禁止修真/超自然解释，收音机异常可作为唯一奇异元素。`,
         messages: [
           ...history.map((h: any) => ({
             role: h.role === 'user' ? 'user' : 'assistant',
@@ -92,7 +91,7 @@ app.post('/api/generate-story', async (req, res) => {
       } else {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${(model || 'gemini-1.5-pro')}:generateContent?key=${key}`;
         const contents = [
-          { role: 'user', parts: [{ text: `${engineBlock ? engineBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须以第一人称写作，不得切换视角。${globalContext ? `\n另一角色剧情参考（仅背景）：${globalContext}` : ''}` }] },
+          { role: 'user', parts: [{ text: `${engineBlock ? engineBlock + '\n\n' : ''}${tishiciBlock ? tishiciBlock + '\n\n' : ''}${cotBlock ? cotBlock + '\n\n' : ''}输出要求：\n1) 先输出<thinking>按模板进行分析；\n2) 再输出json包裹的JSON，字段严格为{text, mid_term_memory, tavern_commands, action_options}；\n3) text为1500-2500字纯叙事，现代香港设定，推进主线；\n4) action_options正好5项，8-20字，覆盖对话/行动/情感/静默/环境互动；\n5) tavern_commands为数组，操作类型set/add/push/delete，值类型严格匹配；\n6) 禁止未定义字段；\n7) 不在最终输出展示<thinking>以外内容。` }] },
           ...(tishici ? [{ role: 'user', parts: [{ text: `剧情提示：${tishici}` }] }] : []),
           ...history.map((h: any) => ({
             role: h.role === 'assistant' ? 'model' : 'user',
@@ -133,7 +132,7 @@ app.post('/api/generate-story', async (req, res) => {
           body: JSON.stringify({
             model: model || 'deepseek-chat',
             messages: [
-              { role: 'system', content: `你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须使用${char.name}第一人称，不得切换到其他角色。${tishici ? `\n剧情提示：${tishici}` : ''}${globalContext ? `\n另一角色剧情参考（仅背景）：${globalContext}` : ''}` },
+              { role: 'system', content: `${tishiciBlock ? tishiciBlock + '\n\n' : ''}${cotBlock ? cotBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须使用${char.name}第一人称，不得切换到其他角色。控制约300字，并在${Number(targetActions || 10)}次行动内到达结局（当前第${Number(currentAction || 0)}次），靠近目标时加快推进，未到目标避免过早结局。最终输出只包含剧情文本，不输出<thinking>内容。` },
               ...history,
               { role: 'user', content: String(prompt || '') },
             ],
@@ -162,7 +161,7 @@ app.post('/api/generate-story', async (req, res) => {
         body: JSON.stringify({
           model: model || 'glm-4.6',
           messages: [
-            { role: 'system', content: `你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须以${char.name}第一人称写作，不得切换视角。${tishici ? `\n剧情提示：${tishici}` : ''}${globalContext ? `\n另一角色剧情参考（仅背景）：${globalContext}` : ''}` },
+            { role: 'system', content: `${tishiciBlock ? tishiciBlock + '\n\n' : ''}${cotBlock ? cotBlock + '\n\n' : ''}你是一个文字冒险游戏的故事生成器。当前角色：${char.name}。人物设定：${char.profile || ''}。必须以${char.name}第一人称写作，不得切换视角。控制约300字，并在${Number(targetActions || 10)}次行动内到达结局（当前第${Number(currentAction || 0)}次），靠近目标时加快推进，未到目标避免过早结局。最终输出只包含剧情文本，不输出<thinking>内容。` },
             ...history,
             { role: 'user', content: String(prompt || '') },
           ],
@@ -178,10 +177,27 @@ app.post('/api/generate-story', async (req, res) => {
     }
     
     if (!response) return res.status(502).json({ error: 'AI未返回内容' });
-    const actions = await generateActions({ provider, apiKey, model, temperature, maxTokens: capTokens(provider, maxTokens, 8000), story: response, character: char.name });
-    const endHints = /(结局|终章|尾声|最终|落幕|ending)/i;
-    const end = endHints.test(response);
-    res.json({ story: response, actions, end });
+    let parsed: any = null;
+    try {
+      const m = String(response || '').match(/json\s*([\s\S]*?)$/i);
+      const body = m ? m[1] : response;
+      const j = String(body || '').match(/\{[\s\S]*\}/);
+      if (j) parsed = JSON.parse(j[0]);
+    } catch {}
+    if (parsed && typeof parsed === 'object') {
+      const text = String(parsed.text || '');
+      const mid = String(parsed.mid_term_memory || '');
+      const cmds = Array.isArray(parsed.tavern_commands) ? parsed.tavern_commands : [];
+      const opts = sanitizeOptions(parsed.action_options);
+      const endHints = /(结局|终章|尾声|最终|落幕|ending)/i;
+      const end = endHints.test(text);
+      return res.json({ story: text, actions: opts, mid_term_memory: mid, tavern_commands: cmds, end });
+    } else {
+      const actions = sanitizeOptions(await generateActions({ provider, apiKey, model, temperature, maxTokens: capTokens(provider, maxTokens, 8000), story: response, character: char.name, tishici: tishiciAll }));
+      const endHints = /(结局|终章|尾声|最终|落幕|ending)/i;
+      const end = endHints.test(response);
+      return res.json({ story: response, actions, end, mid_term_memory: '', tavern_commands: [] });
+    }
   } catch (error) {
     console.error('生成故事失败:', error);
     res.status(500).json({ error: '生成故事失败', detail: String((error as any)?.message || '') });
@@ -411,34 +427,34 @@ app.post('/api/upload-avatar', async (req, res) => {
   }
 });
 
+// Serve static files from the dist directory
+const distPath = path.join(process.cwd(), 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  
+  // Handle client-side routing by serving index.html for all non-API routes
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(distPath, 'index.html'));
+    } else {
+      res.status(404).json({ error: 'Not Found' });
+    }
+  });
+}
+
 initAIServices();
 
-// Handle React routing, return all requests to React app
-if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
-    // 忽略 /api 开头的请求，让它们进入 API 路由（如果没有匹配到前面的路由）
-    if (req.path.startsWith('/api')) {
-      return res.status(404).json({ error: 'API endpoint not found' });
-    }
-    res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
-  });
-}
-
-if (process.env.NODE_ENV !== 'production' || process.env.PM2_USAGE === 'true') {
-  app.listen(port, () => {
-    console.log(`AI 文字游戏服务器运行在端口 ${port}`);
-  });
-}
-
-export default app;
+app.listen(port, () => {
+  console.log(`AI 文字游戏服务器运行在端口 ${port}`);
+});
 const CHARACTER_MAP: Record<string, { name: string; profile: string }> = {
   chennuo: {
     name: '陈诺',
-    profile: '电台主持人，温柔而神秘，拥有穿越时空的能力。',
+    profile: '30岁，广告公司创意总监。敏感细腻，对过去抱有温柔的遗憾，是故事的主视角。',
   },
   linzhe: {
     name: '林哲',
-    profile: '程序员，理性且孤独，在寻找失去的记忆的旅程中前行。',
+    profile: '30岁，室内设计师。表面洒脱，内心隐忍，用友谊守护未言之情。',
   },
 };
 
@@ -449,7 +465,7 @@ function resolveCharacter(input: string): { name: string; profile?: string } {
 }
 
 async function generateActions({ provider, apiKey, model, temperature, maxTokens, story, character }: any): Promise<string[]> {
-  const prompt = `基于以下剧情，给出3-5个下一步行动，仅返回每行一个行动，不要编号，不要解释，每条不超过12字。\n角色：${character}\n剧情：${story}`;
+  const prompt = `基于以下剧情与提示词，给出5个下一步行动。仅返回每行一个行动短语，不要编号，不要解释，不含引号与句末标点，长度8-20字，贴合提示词主题。\n需覆盖对话/行动/情感表达/静默思考/环境互动五类，确保可执行、有意义、不重复。\n角色：${character}\n剧情：${story}\n提示：${String(arguments[0]?.tishici || '')}`;
   try {
     if (provider === 'openai' && (apiKey || process.env.OPENAI_API_KEY)) {
       const client = apiKey ? new OpenAI({ apiKey }) : (aiServices.openai as OpenAI);
@@ -492,6 +508,21 @@ async function generateActions({ provider, apiKey, model, temperature, maxTokens
   return [];
 }
 
+function sanitizeOptions(raw: any): string[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out = arr
+    .map((s) => String(s || '').trim())
+    .filter((s) => !/[<>]/.test(s))
+    .filter((s) => !/(<\s*thinking|思维链|CoT|xml|json|分析|检查|输出|结构|模板)/i.test(s))
+    .filter((s) => !/[：:]/.test(s))
+    .map((s) => s.replace(/["'“”‘’]/g, ''))
+    .map((s) => s.replace(/[。！？!?.…]+$/g, ''))
+    .filter((s) => s.length >= 8 && s.length <= 20)
+    .filter((s, i, self) => s && self.indexOf(s) === i)
+    .slice(0, 5);
+  return out;
+}
+
 async function buildEngineBlockSafe(engineState: any): Promise<string> {
   try {
     const mod = await import('../CharaEngineForST-main/integration/prompt-builder.js');
@@ -503,6 +534,34 @@ async function buildEngineBlockSafe(engineState: any): Promise<string> {
     // 忽略失败，回退为空
   }
   return '';
+}
+
+function readGlobalTishici(): string {
+  try {
+    const filePath = path.join(process.cwd(), 'tishici.txt');
+    if (fs.existsSync(filePath)) {
+      const txt = fs.readFileSync(filePath, 'utf-8');
+      return String(txt || '').trim();
+    }
+  } catch {}
+  return '';
+}
+
+function buildTishiciConstraints(tishici: string): string {
+  const base = String(tishici || '').trim();
+  if (!base) return '';
+  const lines = base.split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, 10);
+  const bullet = lines.length ? `提示关键词/意象：\n- ${lines.join('\n- ')}` : '';
+  const rules = [
+    '剧情需紧扣提示文本的主题与意象，避免偏离设定',
+    '每段内容至少出现一个提示中的关键词或意象',
+    '时间/地点/人物关系以提示为准，避免随意更改',
+  ].join('\n- ');
+  return `${bullet}\n约束：\n- ${rules}`;
+}
+
+function buildCotProtocol(): string {
+  return `思维链(CoT)协议（每次响应前必须执行，勿在最终输出中展示thinking内容）\nXML模板：\n<thinking>\n1. 用户意图分析：严格按用户选择推进剧情，不擅自改变或添加意图。\n2. 世界观与时间线检查：\n   - 时间线：□2023年 □2014年（穿越中）\n   - 收音机：□正常 □异常 □穿越中 □播放过去内容\n   - NPC：列出出场NPC与状态（如林哲、苏芮等）\n   - 角色情感状态：基于发展更新陈诺/林哲情感状态\n   - 保持现代香港设定，无修真/古代元素\n3. 剧情逻辑与角色一致性检查：\n   - 角色性格一致（陈诺细腻、林哲隐忍、苏芮直率/通透）\n   - 推进核心主线：收音机异常→穿越→空地真相→返回与释怀\n   - 情感发展克制自然，符合30岁成年人的表达\n   - 对话现代自然，符合身份与关系\n4. 数据更新规划：\n   - NPC出场/互动：更新外貌/内心/记忆\n   - 时间推进：记录行动耗时（分钟）\n   - 物品变更：香烟、手机、收音机等更新状态\n   - 情感状态更新：角色情感字段同步\n   - 世界信息更新：收音机与时间线状态\n5. 选项生成设计：\n   - 基于当前场景给出5个合理选项\n   - 多样化：对话/行动/情感表达/静默思考/环境互动\n   - 可执行、有意义、不重复\n</thinking>\n关键场景要点：\n- 收音机异常触发：5月16日、Yellow、《星夜港湾》、频率跳动98.7、播放2014年节目、过去环境音\n- 时间穿越过程：按下记忆坐标，雨中水彩晕开的视觉转换；2014旧唐楼/铁皮招牌/凉茶铺/青涩衣着；2023现代高楼/玻璃幕墙；显示剩余时间\n- 空地真相：24岁林哲与苏芮告白场景，拒绝原因与对陈诺的选择；观察者反应克制，通过动作与环境烘托\n- 返回现在与释怀：确认苏芮现状、未打电话的欲言又止、陈诺主动决定与未来计划（上海项目与时光2.0咖啡馆），结尾克制、温暖、留白。`;
 }
 function capTokens(provider: string, requested?: number, fallback?: number) {
   const cap = 12800;
