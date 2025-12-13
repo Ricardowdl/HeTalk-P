@@ -3,20 +3,28 @@ import { apiFetch } from '@/utils/request';
 import { sanitizeAIText, formatDialogue, formatStory } from '@/utils/sanitize';
 import { applyCommands } from '@/utils/worldState';
 
-function sanitizeActions(raw: any, chapter: number): string[] {
-  const arr = Array.isArray(raw) ? raw : [];
+function sanitizeActions(raw: any, chapter: number, selectedCharacter: string): string[] {
+  const arr0 = Array.isArray(raw) ? raw : [];
+  // 展平包含换行的大段文本
+  const arr = arr0.flatMap((v) => String(v || '').split(/\r?\n/)).filter(Boolean);
+  const selfName = selectedCharacter === 'linzhe' ? '林哲' : '陈诺';
+  const otherName = selectedCharacter === 'linzhe' ? '陈诺' : '林哲';
+  const forbidden = /(输出要求|系统|system|JSON|字段|字数|模板|思维链|CoT|tavern_commands|action_options|mid_term_memory|text|里程碑|目标|结局|请选择|当前状态)/i;
   const cleaned = arr
     .map((s) => String(s || '').trim())
     .filter((s) => !/[<>]/.test(s))
-    .filter((s) => !/(<\s*thinking|思维链|CoT|xml|json|分析|检查|输出|结构|模板)/i.test(s))
+    .filter((s) => !/(<\s*thinking|xml|分析|检查|结构)/i.test(s))
+    .filter((s) => !forbidden.test(s))
     .filter((s) => !/[：:]/.test(s))
     .map((s) => s.replace(/["'“”‘’]/g, ''))
     .map((s) => s.replace(/[。！？!?.…]+$/g, ''))
+    .map((s) => s.replace(new RegExp(selfName, 'g'), otherName))
+    .filter((s) => /[\u4e00-\u9fa5a-zA-Z]/.test(s))
     .filter((s) => s.length >= 8 && s.length <= 20)
     .filter((s, i, self) => s && self.indexOf(s) === i);
   if (cleaned.length) return cleaned.slice(0, 5);
   // fallback by stage
-  if (chapter <= 3) return ['伸手调试收音机', '开口问林哲', '下车走走', '查看手机时间', '默默观察街道'];
+  if (chapter <= 3) return ['伸手调试收音机', `开口问${otherName}`, '下车走走', '查看手机时间', '默默观察街道'];
   if (chapter <= 6) return ['记录频率变化', '沿着旧路前行', '回忆大学咖啡馆', '跟随异常声音', '调整频道98.7'];
   return ['屏住呼吸继续看', '压低声音询问', '闭眼冷静片刻', '仔细观察表情', '思考错过的节点'];
 }
@@ -186,13 +194,14 @@ export default function Game() {
       if (!storyText) throw new Error('生成内容为空');
       const newStory = [...gameState.story, storyText];
       const nextChapter = gameState.chapter + 1;
-      const dynamicButtons = sanitizeActions((data as any)?.actions, nextChapter);
+      const dynamicButtons = sanitizeActions((data as any)?.actions, nextChapter, selectedCharacter);
       if (Array.isArray((data as any)?.tavern_commands)) {
         applyCommands((data as any).tavern_commands);
       }
       const actionsSoFar = nextChapter - 1; // 已进行的行动次数
       const required = (gameState.actionRequired ?? 10);
-      const unlocked = actionsSoFar >= required || gameState.endingUnlocked;
+      const confessDetected = Boolean((data as any)?.confess) || hasConfess(storyText) || hasConfess(newStory.join('\n'));
+      const unlocked = confessDetected || gameState.endingUnlocked;
       const newState = {
         ...gameState,
         story: newStory,
@@ -398,4 +407,10 @@ export default function Game() {
       </div>
     </div>
   );
+}
+
+function hasConfess(text: string): boolean {
+  const s = String(text || '');
+  const reA = /(苏芮|蘇芮)[\s\S]{0,40}(喜欢|告白|表白)/i;
+  return reA.test(s);
 }

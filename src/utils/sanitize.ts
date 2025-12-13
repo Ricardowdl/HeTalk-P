@@ -60,6 +60,9 @@ export function sanitizeAIText(input: string): string {
 export function formatDialogue(input: string): string {
   let text = sanitizeAIText(input);
   text = text.replace(/\s+/g, ' ').trim();
+  text = text.replace(/[{}\[\]]+/g, '');
+  text = text.replace(/(json|tavern_commands|action_options|mid_term_memory|system|output|模板|结构|分析)/gi, '');
+  text = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9，。！？、“”‘’（）\s]/g, '');
   let dialogue = '';
   let state = '';
   const parenMatch = text.match(/（([\s\S]*?)）\s*$/);
@@ -67,15 +70,15 @@ export function formatDialogue(input: string): string {
     state = parenMatch[1].trim();
     text = text.replace(/（([\s\S]*?)）\s*$/, '').trim();
   }
-  const quoteMatch = text.match(/“([\s\S]*?)”/);
-  if (quoteMatch) {
-    dialogue = quoteMatch[1].trim();
+  const quoteMatches = text.match(/“([\s\S]*?)”/g);
+  if (quoteMatches && quoteMatches.length) {
+    const parts = quoteMatches.map(q => q.replace(/[“”]/g, '').trim()).filter(Boolean);
+    dialogue = parts.slice(0, 3).join('。');
   } else {
-    // 取首句作为对白
-    const sentence = text.match(/^[^。！？!?]+[。！？!?]?/);
-    dialogue = (sentence ? sentence[0] : text).trim();
+    const sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
+    dialogue = sentences.slice(0, 3).join('').trim();
   }
-  if (dialogue.length > 160) dialogue = dialogue.slice(0, 160);
+  if (dialogue.length > 280) dialogue = dialogue.slice(0, 280);
   return state ? `${dialogue}（${state}）` : dialogue;
 }
 
@@ -88,12 +91,20 @@ export function formatStory(input: string, maxChars = 600): string {
     const s = String(ln || '').trim();
     if (!s) return false;
     if (/^(你的选择|选择|选项)\s*[:：]/.test(s)) return false;
-    if (/^\d+\s*[\.、:：]/.test(s)) return false;
-    if (/^[\-•]\s+/.test(s)) return false;
-    if (/<\s*thinking/i.test(s)) return false;
+    if (/请选择/.test(s)) return false;
+    if (/当前状态/.test(s)) return false;
+    if(/^\d+\s*[\.、:：]/.test(s)) return false;
+    if(/^[\-•]\s+/.test(s)) return false;
+    if(/<\s*thinking/i.test(s)) return false;
+    if(/^#{1,6}\s+/.test(s)) return false;
+    if(/^>{1,3}\s+/.test(s)) return false;
+    if(/^\*\*.*\*\*$/.test(s)) return false;
+    if(/^\s*-{3,}\s*$/.test(s)) return false;
     return true;
   });
   text = filtered.join('\n').trim();
+  // 纠正常用人称性别：陈诺/林哲均为“他”，苏芮为“她”
+  text = enforcePronounsInStory(text);
   if (text.length <= maxChars) return text;
   // 尽量按句子边界截断
   const clipped = text.slice(0, maxChars);
@@ -106,4 +117,23 @@ export function formatStory(input: string, maxChars = 600): string {
   );
   if (lastPunct > 50) return clipped.slice(0, lastPunct + 1);
   return clipped + '…';
+}
+
+function enforcePronounsInStory(input: string): string {
+  const sentences = String(input || '').split(/(?<=[。！？!?])/);
+  const fixed = sentences.map((sent) => {
+    const s = String(sent || '');
+    const hasChen = /陈诺/.test(s);
+    const hasLin = /林哲/.test(s);
+    const hasSu = /苏芮/.test(s);
+    let out = s;
+    if (hasChen || hasLin) {
+      out = out.replace(/她的/g, '他的').replace(/她/g, '他');
+    }
+    if (hasSu) {
+      out = out.replace(/他的/g, '她的').replace(/他/g, '她');
+    }
+    return out;
+  });
+  return fixed.join('');
 }
